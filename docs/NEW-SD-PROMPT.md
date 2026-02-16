@@ -96,6 +96,18 @@ Use this prompt to reproduce the current working state of the Raspberry Pi USB g
    - Trigger logs:
      - /var/log/usb-debug/triggers/ should populate after -61 events.
 
+10) Monitoring and log capture (recommended)
+   - Ensure debug logging services are active:
+     - systemctl status usb-debug-usbmon.service
+     - systemctl status usb-debug-kernel-tail.service
+     - systemctl status usb-debug-trigger-capture.service
+   - Log locations:
+     - /var/log/usb-debug/usbmon-1u.log, usbmon-2u.log
+     - /var/log/usb-debug/usbmon-1s.log, usbmon-2s.log
+     - /var/log/usb-debug/usbmon-1t.log, usbmon-2t.log
+     - /var/log/usb-debug/kernel-tail-200-*.log
+     - /var/log/usb-debug/triggers/*
+
 ## Validation Checklist
 - Host PC enumerates HID and CDC ACM.
 - UVC device appears in host camera list.
