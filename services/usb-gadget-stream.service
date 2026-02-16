@@ -1,0 +1,15 @@
+[Unit]
+Description=USB Gadget UVC Stream
+After=usb-gadget.service
+Wants=usb-gadget.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/usb-gadget
+EnvironmentFile=-/etc/default/usb-gadget-source
+ExecStart=/usr/local/bin/usb-gadget-stream.sh
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

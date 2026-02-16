@@ -1,0 +1,15 @@
+[Unit]
+Description=USB Video Mixer (Low Latency, Fixed 640x480 Output)
+After=usb-gadget.service usb-gadget-stream.service
+Wants=usb-gadget.service usb-gadget-stream.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/usb-gadget
+EnvironmentFile=-/etc/default/usb-video-mixer
+ExecStart=/usr/local/bin/usb-video-mixer.sh
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

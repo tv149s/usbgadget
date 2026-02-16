@@ -1,0 +1,13 @@
+[Unit]
+Description=USB Gadget Config
+After=local-fs.target systemd-modules-load.service
+DefaultDependencies=yes
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/usb-gadget
+ExecStart=/usr/local/bin/usb-gadget.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
