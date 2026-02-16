@@ -11,3 +11,5 @@ USB gadget stack for Raspberry Pi: HID keyboard/mouse + CDC ACM + UVC.
 ## Status
 
 See DEVLOG.md for development steps and current progress.
+
+Migration notes for the working SD card are in docs/SDCARD-MIGRATION.md.
