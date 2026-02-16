@@ -27,6 +27,15 @@ File: /etc/cloud/cloud.cfg.d/90-disable-raspberry-pi.cfg
 - Disabled the cloud-init raspberry_pi module so it no longer rewrites
   /boot/firmware/config.txt at boot.
 
+## Kernel/firmware update
+
+- Upgraded kernel packages to 6.12.62 to match the known-good SD card:
+  - linux-image-rpi-v8
+  - linux-image-rpi-2712
+  - linux-image-6.12.62+rpt-rpi-v8
+  - linux-image-6.12.62+rpt-rpi-2712
+  - related headers and linux-kbuild
+
 ## Why reboot is required
 
 Bootloader and kernel read config.txt and cmdline.txt only at boot. Changes to those files do not apply until the system restarts.
