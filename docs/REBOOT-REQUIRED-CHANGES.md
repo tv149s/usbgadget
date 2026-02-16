@@ -20,6 +20,13 @@ File: /boot/firmware/cmdline.txt
 - Ensure gadget modules load at boot:
   - modules-load=dwc2,libcomposite
 
+## Cloud-init change (prevents boot config rewrite)
+
+File: /etc/cloud/cloud.cfg.d/90-disable-raspberry-pi.cfg
+
+- Disabled the cloud-init raspberry_pi module so it no longer rewrites
+  /boot/firmware/config.txt at boot.
+
 ## Why reboot is required
 
 Bootloader and kernel read config.txt and cmdline.txt only at boot. Changes to those files do not apply until the system restarts.
