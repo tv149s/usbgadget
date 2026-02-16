@@ -1,0 +1,15 @@
+[Unit]
+Description=USB Gadget Web UI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/usb-gadget-webui.py
+Environment=GADGET_WEBUI_ADDR=0.0.0.0
+Environment=GADGET_WEBUI_PORT=8765
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

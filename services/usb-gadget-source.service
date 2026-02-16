@@ -2,6 +2,8 @@
 Description=USB Gadget External Video Source
 After=usb-gadget.service usb-gadget-stream.service
 Wants=usb-gadget.service usb-gadget-stream.service
+StartLimitIntervalSec=60
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -10,8 +12,8 @@ EnvironmentFile=-/etc/default/usb-gadget-source
 Environment=SOURCE_SIZE=640x480
 Environment=SOURCE_FPS=30
 ExecStart=/usr/local/bin/usb-gadget-source.sh
-Restart=always
-RestartSec=2
+Restart=on-failure
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target

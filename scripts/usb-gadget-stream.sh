@@ -5,10 +5,11 @@ CFG_FILE=/etc/default/usb-gadget
 SOURCE_CFG_FILE=/etc/default/usb-gadget-source
 UVC_BIN=${UVC_BIN:-}
 UVC_U_DEV=${UVC_U_DEV:-}
-UVC_V_DEV=${UVC_V_DEV:-/dev/video1}
+UVC_V_DEV=${UVC_V_DEV:-/dev/video0}
 SOURCE_DEV=${SOURCE_DEV:-/dev/video43}
 PLACEHOLDER_SIZE=${PLACEHOLDER_SIZE:-640x480}
 PLACEHOLDER_FPS=${PLACEHOLDER_FPS:-30}
+UVC_BUFFERS=${UVC_BUFFERS:-8}
 
 ENABLE_UVC=0
 if [[ -f "$CFG_FILE" ]]; then
@@ -22,7 +23,30 @@ if [[ -f "$SOURCE_CFG_FILE" ]]; then
 fi
 
 log() {
-  echo "[usb-gadget-stream] $*"
+  local now
+  now="$(date --iso-8601=seconds 2>/dev/null || date)"
+  echo "[usb-gadget-stream] $now $*"
+}
+
+dump_udc_state() {
+  local udc_path state speed
+  udc_path="/sys/class/udc/fe980000.usb"
+  if [[ -d "$udc_path" ]]; then
+    state="$(cat "$udc_path/state" 2>/dev/null || true)"
+    speed="$(cat "$udc_path/current_speed" 2>/dev/null || true)"
+    log "UDC state=${state:-unknown} speed=${speed:-unknown}"
+  fi
+}
+
+dump_source_info() {
+  local dev="$1"
+  if ! command -v v4l2-ctl >/dev/null 2>&1; then
+    return 0
+  fi
+  log "Source $dev v4l2 summary:"
+  v4l2-ctl -d "$dev" --all 2>/dev/null | sed 's/^/[usb-gadget-stream]   /' || true
+  log "Source $dev v4l2 fmt:"
+  v4l2-ctl -d "$dev" --get-fmt-video 2>/dev/null | sed 's/^/[usb-gadget-stream]   /' || true
 }
 
 wait_for_source_fmt() {
@@ -49,6 +73,7 @@ wait_for_source_fmt() {
 
   log "Source device $dev not ready for UVC (${size} YUYV). Current:"
   printf '%s\n' "$fmt" | sed 's/^/[usb-gadget-stream]   /'
+  dump_source_info "$dev"
   return 1
 }
 
@@ -100,6 +125,14 @@ is_gadget_video_dev() {
   echo "$name" | grep -Eqi 'uvc|gadget|fe980000\.usb'
 }
 
+is_capture_dev() {
+  local dev="$1"
+  if ! command -v v4l2-ctl >/dev/null 2>&1; then
+    return 0
+  fi
+  v4l2-ctl -d "$dev" --all 2>/dev/null | grep -q 'Video Capture'
+}
+
 start_placeholder_stream() {
   local uvc_dev="$1"
 
@@ -114,12 +147,13 @@ start_placeholder_stream() {
     -pix_fmt yuyv422 -f v4l2 "$uvc_dev"
 }
 
-start_uvc_dummy_stream() {
+start_uvc_stream() {
   local bin="$1"
   local uvc_dev="$2"
+  local src_dev="$3"
 
-  log "Starting uvc-gadget dummy stream to $uvc_dev"
-  exec "$bin" -d -f 1 -r 1 -u "$uvc_dev"
+  log "Starting uvc-gadget stream: $bin -u $uvc_dev -v $src_dev -n $UVC_BUFFERS"
+  exec "$bin" -u "$uvc_dev" -v "$src_dev" -n "$UVC_BUFFERS"
 }
 
 main() {
@@ -140,26 +174,38 @@ main() {
   fi
 
   if [[ -n "$bin" && -n "$uvc_out" && -e "$uvc_out" && -e "$SOURCE_DEV" ]]; then
+    if ! is_capture_dev "$SOURCE_DEV"; then
+      log "Source device $SOURCE_DEV is not a video capture node, skip"
+    else
+    dump_udc_state
+    dump_source_info "$SOURCE_DEV"
     if ! wait_for_source_fmt "$SOURCE_DEV" "${SOURCE_SIZE:-640x480}"; then
       exit 1
     fi
-    log "Starting stream from external source: $bin -f 1 -r 1 -u $uvc_out -v $SOURCE_DEV"
+    log "Starting stream from external source: $bin -u $uvc_out -v $SOURCE_DEV -n $UVC_BUFFERS"
     local rc=0
     set +e
-    "$bin" -f 1 -r 1 -u "$uvc_out" -v "$SOURCE_DEV"
+    "$bin" -u "$uvc_out" -v "$SOURCE_DEV" -n "$UVC_BUFFERS"
     rc=$?
     set -e
     if [[ "$rc" -eq 0 ]]; then
       exit 0
     fi
     log "External source mode failed (rc=$rc), fallback to dummy/placeholder"
+    fi
   fi
 
   if [[ -n "$bin" && -n "$uvc_out" && -e "$uvc_out" && -e "$UVC_V_DEV" && "$UVC_V_DEV" != "$uvc_out" ]]; then
-    log "Starting stream from fallback source: $bin -f 1 -r 1 -u $uvc_out -v $UVC_V_DEV"
+    if ! is_capture_dev "$UVC_V_DEV"; then
+      log "Fallback device $UVC_V_DEV is not a video capture node, skip"
+      exit 1
+    fi
+    dump_udc_state
+    dump_source_info "$UVC_V_DEV"
+    log "Starting stream from fallback source: $bin -u $uvc_out -v $UVC_V_DEV -n $UVC_BUFFERS"
     local rc=0
     set +e
-    "$bin" -f 1 -r 1 -u "$uvc_out" -v "$UVC_V_DEV"
+    "$bin" -u "$uvc_out" -v "$UVC_V_DEV" -n "$UVC_BUFFERS"
     rc=$?
     set -e
     if [[ "$rc" -eq 0 ]]; then
@@ -169,18 +215,15 @@ main() {
   fi
 
   if [[ -n "$bin" ]]; then
-    log "uvc-gadget present but source devices missing (U=$UVC_U_DEV V=$UVC_V_DEV), try placeholder"
-  else
-    log "uvc-gadget binary not found, try placeholder"
+    log "uvc-gadget present but no usable source device, stop"
+    exit 1
   fi
+
+  log "uvc-gadget binary not found, try placeholder"
 
   if [[ -z "$uvc_out" || ! -e "$uvc_out" ]]; then
     log "No UVC gadget video node found, skip placeholder"
     exit 0
-  fi
-
-  if [[ -n "$bin" ]]; then
-    start_uvc_dummy_stream "$bin" "$uvc_out"
   fi
 
   start_placeholder_stream "$uvc_out"

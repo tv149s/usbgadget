@@ -1,0 +1,12 @@
+[Unit]
+Description=USB Gadget Watchdog Logger
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/usb-gadget-watchdog.sh
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

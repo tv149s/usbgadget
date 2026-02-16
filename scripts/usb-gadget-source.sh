@@ -13,6 +13,8 @@ SOURCE_SIZE=${SOURCE_SIZE:-1280x720}
 SOURCE_FPS=${SOURCE_FPS:-15}
 SOURCE_LABEL=${SOURCE_LABEL:-GadgetSource}
 SOURCE_EXCLUSIVE_CAPS=${SOURCE_EXCLUSIVE_CAPS:-0}
+SOURCE_FORCE=${SOURCE_FORCE:-0}
+SOURCE_PIXFMT=${SOURCE_PIXFMT:-YUYV}
 
 if [[ -f "$CFG_FILE" ]]; then
   # shellcheck disable=SC1090
@@ -63,6 +65,22 @@ ensure_loopback() {
 
   log "Failed to create source device $SOURCE_DEV"
   return 1
+}
+
+configure_loopback() {
+  if ! command -v v4l2-ctl >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local w h
+  w="${SOURCE_SIZE%x*}"
+  h="${SOURCE_SIZE#*x}"
+
+  v4l2-ctl -d "$SOURCE_DEV" --set-ctrl=keep_format=0 >/dev/null 2>&1 || true
+  v4l2-ctl -d "$SOURCE_DEV" --set-fmt-video=width="$w",height="$h",pixelformat="$SOURCE_PIXFMT" >/dev/null 2>&1 || true
+  v4l2-ctl -d "$SOURCE_DEV" --set-fmt-video-out=width="$w",height="$h",pixelformat="$SOURCE_PIXFMT" >/dev/null 2>&1 || true
+  v4l2-ctl -d "$SOURCE_DEV" --set-ctrl=keep_format=1 >/dev/null 2>&1 || true
+  v4l2-ctl -d "$SOURCE_DEV" --set-ctrl=sustain_framerate=1 >/dev/null 2>&1 || true
 }
 
 wait_for_consumer() {
@@ -126,8 +144,13 @@ start_file() {
 }
 
 main() {
-  if [[ "${ENABLE_UVC:-0}" -ne 1 ]]; then
-    log "ENABLE_UVC=0, skip source service"
+  if [[ "${ENABLE_UVC:-0}" -ne 1 && "${SOURCE_FORCE:-0}" -ne 1 ]]; then
+    log "ENABLE_UVC=0 and SOURCE_FORCE=0, skip source service"
+    exit 0
+  fi
+
+  if [[ "${SOURCE_MODE}" == "off" ]]; then
+    log "SOURCE_MODE=off, skip source service"
     exit 0
   fi
 
@@ -137,6 +160,7 @@ main() {
   fi
 
   ensure_loopback
+  configure_loopback
 
   if wait_for_consumer; then
     log "Detected uvc-gadget consumer on $SOURCE_DEV"
@@ -155,8 +179,8 @@ main() {
       start_file
       ;;
     *)
-      log "Unknown SOURCE_MODE=$SOURCE_MODE, fallback to testsrc"
-      start_testsrc
+      log "Unknown SOURCE_MODE=$SOURCE_MODE, stop source service"
+      exit 1
       ;;
   esac
 }

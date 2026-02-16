@@ -8,6 +8,9 @@ Type=simple
 EnvironmentFile=-/etc/default/usb-gadget
 EnvironmentFile=-/etc/default/usb-gadget-source
 ExecStart=/usr/local/bin/usb-gadget-stream.sh
+Nice=-10
+CPUSchedulingPolicy=rr
+CPUSchedulingPriority=10
 Restart=on-failure
 RestartSec=2
 

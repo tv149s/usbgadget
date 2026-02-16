@@ -175,6 +175,19 @@ setup_uvc() {
   safe_link "$G/functions/uvc.usb0/control/header/h" "$G/functions/uvc.usb0/control/class/fs/h"
   safe_link "$G/functions/uvc.usb0/control/header/h" "$G/functions/uvc.usb0/control/class/ss/h"
 
+  if [[ -e "$G/functions/uvc.usb0/streaming_maxpacket" ]]; then
+    echo 1024 > "$G/functions/uvc.usb0/streaming_maxpacket"
+  fi
+  if [[ -e "$G/functions/uvc.usb0/streaming_mult" ]]; then
+    echo 1 > "$G/functions/uvc.usb0/streaming_mult"
+  fi
+  if [[ -e "$G/functions/uvc.usb0/streaming_maxburst" ]]; then
+    echo 0 > "$G/functions/uvc.usb0/streaming_maxburst"
+  fi
+  if [[ -e "$G/functions/uvc.usb0/streaming_interval" ]]; then
+    echo 1 > "$G/functions/uvc.usb0/streaming_interval"
+  fi
+
   local configured_count=0
   if [[ -n "$formats_file" ]]; then
     while read -r format width height; do
@@ -222,7 +235,7 @@ setup_uvc() {
 ensure_default_formats_file() {
   mkdir -p /etc
 
-  if [[ ! -f "$VIDEO_FORMATS_FILE" ]]; then
+  if [[ ! -s "$VIDEO_FORMATS_FILE" ]]; then
     cat > "$VIDEO_FORMATS_FILE" <<'EOF'
 # format width height
 uncompressed 640 480

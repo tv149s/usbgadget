@@ -7,6 +7,9 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 
 CONFIG_PATH = "/etc/default/usb-gadget"
+SOURCE_CONFIG_PATH = "/etc/default/usb-gadget-source"
+SOURCE_PROFILES_DIR = "/etc/usb-gadget-source.d"
+SWITCH_SCRIPT = "/usr/local/bin/usb-gadget-switch-source.sh"
 LOCK_PATH = "/etc/default/usb-gadget.uvc-lock"
 
 DEFAULTS = {
@@ -47,10 +50,68 @@ def write_kv(path, values):
     os.replace(tmp_path, path)
 
 
-def run_systemctl():
-    cmd = ["/bin/systemctl", "restart"] + SERVICES
+def write_kv_generic(path, values):
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as handle:
+        for key, value in values.items():
+            handle.write(f"{key}={value}\n")
+    os.replace(tmp_path, path)
+
+
+def run_systemctl(services):
+    cmd = ["/bin/systemctl", "restart"] + services
     result = subprocess.run(cmd, capture_output=True, text=True)
     return result.returncode, result.stdout.strip(), result.stderr.strip()
+
+
+def read_source_profiles():
+    profiles = {}
+    if not os.path.isdir(SOURCE_PROFILES_DIR):
+        return profiles
+    for name in sorted(os.listdir(SOURCE_PROFILES_DIR)):
+        if not name.endswith(".conf"):
+            continue
+        profile_name = name[:-5]
+        profile_path = os.path.join(SOURCE_PROFILES_DIR, name)
+        profiles[profile_name] = read_kv(profile_path)
+    return profiles
+
+
+def detect_profile(current, profiles):
+    if not current or not profiles:
+        return ""
+    for name, values in profiles.items():
+        if not values:
+            continue
+        match = True
+        for key, value in values.items():
+            if current.get(key, "") != value:
+                match = False
+                break
+        if match:
+            return name
+    return ""
+
+
+def apply_source_profile(profile, profiles):
+    if profile not in profiles:
+        return 1, "", f"unknown profile: {profile}"
+
+    if os.path.exists(SWITCH_SCRIPT) and os.access(SWITCH_SCRIPT, os.X_OK):
+        result = subprocess.run(
+            [SWITCH_SCRIPT, profile], capture_output=True, text=True
+        )
+        return result.returncode, result.stdout.strip(), result.stderr.strip()
+
+    try:
+        write_kv_generic(SOURCE_CONFIG_PATH, profiles[profile])
+    except OSError as exc:
+        return 1, "", str(exc)
+
+    return run_systemctl([
+        "usb-gadget-stream.service",
+        "usb-gadget-source.service",
+    ])
 
 
 def read_udc_state():
@@ -114,6 +175,10 @@ class GadgetHandler(BaseHTTPRequestHandler):
         config = DEFAULTS.copy()
         config.update(read_kv(CONFIG_PATH))
 
+        source_config = read_kv(SOURCE_CONFIG_PATH)
+        profiles = read_source_profiles()
+        current_profile = detect_profile(source_config, profiles)
+
         udc_state, udc_speed = read_udc_state()
         bound_udc = read_bound_udc()
         functions = read_functions()
@@ -128,6 +193,8 @@ class GadgetHandler(BaseHTTPRequestHandler):
             bound_udc=bound_udc,
             functions=functions,
             lock_active=lock_active,
+            profiles=profiles,
+            current_profile=current_profile,
         )
 
         body_bytes = body.encode("utf-8")
@@ -154,13 +221,26 @@ class GadgetHandler(BaseHTTPRequestHandler):
             self.redirect("/" + "?err=" + "UVC%20lock%20is%20enabled")
             return
 
-        try:
-            write_kv(CONFIG_PATH, config)
-        except OSError as exc:
-            self.redirect("/" + "?err=" + html_escape(str(exc)))
+        source_profiles = read_source_profiles()
+        selected_profile = form.get("SOURCE_PROFILE", [""])[0].strip()
+        if selected_profile:
+          code, out, err = apply_source_profile(selected_profile, source_profiles)
+          if code != 0:
+            message = "source switch failed"
+            if err:
+              message += ": " + err
+            elif out:
+              message += ": " + out
+            self.redirect("/" + "?err=" + html_escape(message))
             return
 
-        code, out, err = run_systemctl()
+        try:
+          write_kv(CONFIG_PATH, config)
+        except OSError as exc:
+          self.redirect("/" + "?err=" + html_escape(str(exc)))
+          return
+
+        code, out, err = run_systemctl(["usb-gadget.service", "usb-gadget-stream.service"])
         if code != 0:
             message = "restart failed"
             if err:
@@ -190,6 +270,8 @@ class GadgetHandler(BaseHTTPRequestHandler):
         bound_udc,
         functions,
         lock_active,
+        profiles,
+        current_profile,
     ):
         def checked(key):
             return "checked" if config.get(key, "0") == "1" else ""
@@ -205,6 +287,14 @@ class GadgetHandler(BaseHTTPRequestHandler):
             lock_note = "<div class=\"note warn\">UVC lock is enabled. Disable with sudo gadget-mode unlock.</div>"
 
         functions_html = ", ".join(html_escape(item) for item in functions) or "none"
+        def selected(name):
+            return "selected" if name == current_profile else ""
+
+        profile_options = "".join(
+            f"<option value=\"{html_escape(name)}\" {selected(name)}>{html_escape(name)}</option>"
+            for name in profiles.keys()
+        ) or "<option value=\"\" disabled>no profiles found</option>"
+
         return f"""<!doctype html>
 <html lang=\"en\">
   <head>
@@ -400,8 +490,19 @@ class GadgetHandler(BaseHTTPRequestHandler):
           <div class=\"meta\">Active functions: {functions_html}</div>
         </div>
         <div class=\"card\">
+          <div class=\"row\"><strong>Video Source</strong></div>
+          <div class=\"meta\">Select the active UVC source profile.</div>
+          <div class=\"row\">
+            <select name=\"SOURCE_PROFILE\" style=\"flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--border); background: transparent; color: var(--ink);\">
+              {profile_options}
+            </select>
+          </div>
+          <div class=\"meta\">Profiles live in {html_escape(SOURCE_PROFILES_DIR)}.</div>
+        </div>
+        <div class=\"card\">
           <div class=\"row\"><strong>Notes</strong></div>
           <div class=\"meta\">Config file: {html_escape(CONFIG_PATH)}</div>
+          <div class=\"meta\">Source config: {html_escape(SOURCE_CONFIG_PATH)}</div>
           <div class=\"meta\">Services: usb-gadget + stream + source</div>
           <div class=\"meta\">If devices disappear, replug on the host or reboot.</div>
         </div>
