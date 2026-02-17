@@ -47,6 +47,25 @@ Date: 2026-02-15
 - v4l2-ctl reports /dev/video43 (loopback test source) is YUYV 640x480.
 - USB camera supports YUYV 640x480 and smaller sizes at 30/15 fps on /dev/video0.
 
+## Boot config rewrite issue (2026-02-16)
+
+- While migrating to the new SD card, /boot/firmware/config.txt repeatedly reverts to host mode after reboot.
+- Result: /sys/class/udc remains empty and gadget nodes do not appear.
+- Kernel version matches the target: 6.12.62+rpt-rpi-v8.
+- /boot/firmware is mounted rw on /dev/mmcblk0p1.
+
+Actions taken:
+- Created /etc/cloud/cloud.cfg.d/90-disable-raspberry-pi.cfg to disable the cloud-init raspberry_pi module.
+- Installed and enabled auditd; added watches for config.txt and cmdline.txt.
+- Attempted to set peripheral mode in config.txt, but it reverted after reboot.
+
+Open questions:
+- What process or boot stage rewrites config.txt to host mode?
+- Is another config file or boot path being used?
+
+Next steps:
+- Force-write config.txt to peripheral mode, verify immediately, reboot, then use ausearch to identify the writer.
+
 ## UVC enablement notes
 
 - UVC enumeration on Windows is now successful; the Windows Camera app can receive the stream.
